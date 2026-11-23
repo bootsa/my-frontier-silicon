@@ -65,7 +65,7 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             if mode.get("key") == mode_id:
                 if name := mode.get("label") or mode.get("name"):
                     return name
-        return MODE_NAMES.get(mode_id, f"Mode {mode_id}")
+        return f"Mode {mode_id}"
 
     @callback
     def _update_preset_map(self) -> None:
