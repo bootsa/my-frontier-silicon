@@ -74,6 +74,11 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.data.get("available", False)
+
+    @property
     def state(self) -> MediaPlayerState:
         """Return the state of the device."""
         if not self.coordinator.data.get("power"):
@@ -96,20 +101,11 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     def volume_level(self) -> float | None:
         """Volume level of the media player (0..1)."""
         volume = self.coordinator.data.get("volume", 0)
-        max_volume = self._max_volume
-
-        if max_volume > 0:
-            return min(volume / max_volume, 1.0)
-        return 0.0
-
-    @property
-    def _max_volume(self) -> int:
-        """Highest volume value the device accepts.
-
-        volumeSteps is the number of steps, so values range 0..steps-1.
-        """
         volume_steps = self.coordinator.data.get("volume_steps", 32)
-        return max(volume_steps - 1, 0)
+        
+        if volume_steps > 0:
+            return volume / volume_steps
+        return 0.0
 
     @property
     def is_volume_muted(self) -> bool:
@@ -199,22 +195,7 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             except Exception as err:
                 _LOGGER.warning("Error loading device info on power-on: %s", err)
         
-        if not self.coordinator._all_presets:
-            _LOGGER.info("Loading presets after first power-on")
-            try:
-                # Load modes
-                self.coordinator._modes = await self.coordinator.api.get_modes()
-                
-                # Load presets for all modes
-                import asyncio
-                for mode in self.coordinator.preset_mode_keys():
-                    mode_presets = await self.coordinator._load_presets_for_mode(mode)
-                    if mode_presets:
-                        self.coordinator._all_presets[mode] = mode_presets
-                        _LOGGER.info("Loaded %d presets for mode %s", len(mode_presets), mode)
-            except Exception as err:
-                _LOGGER.warning("Error loading presets on power-on: %s", err)
-        
+        # Presets auto-load once the next poll confirms the radio is ON
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
@@ -224,16 +205,18 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        target_volume = round(volume * self._max_volume)
-
+        volume_steps = self.coordinator.data.get("volume_steps", 32)
+        target_volume = int(volume * volume_steps)
+        
         await self.coordinator.api.set_volume(target_volume)
         await self.coordinator.async_request_refresh()
 
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
         current_volume = self.coordinator.data.get("volume", 0)
-
-        if current_volume < self._max_volume:
+        volume_steps = self.coordinator.data.get("volume_steps", 32)
+        
+        if current_volume < volume_steps:
             await self.coordinator.api.set_volume(current_volume + 1)
             await self.coordinator.async_request_refresh()
 
