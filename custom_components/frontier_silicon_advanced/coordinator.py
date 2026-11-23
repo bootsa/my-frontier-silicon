@@ -91,6 +91,25 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=scan_interval_off),  # Start with OFF interval
         )
 
+    _MODE_ALIASES = {
+        "radio": ("IR", "AIRABLE_RADIO", "INTERNET RADIO", "RADIO"),
+        "spotify": ("SPOTIFY", "SPOTIFY CONNECT"),
+        "bluetooth": ("BT", "BLUETOOTH"),
+    }
+    _MODE_FALLBACK = {"radio": "0", "spotify": "1", "bluetooth": "5"}
+
+    def mode_key(self, kind: str) -> str | None:
+        """Key of a kind of mode (radio/spotify/bluetooth) from the radio's own mode list.
+
+        Falls back to common numbering only while the list has not been loaded.
+        """
+        wanted = self._MODE_ALIASES.get(kind, ())
+        for mode in self._modes or []:
+            for field in ("id", "label"):
+                if (mode.get(field) or "").strip().upper() in wanted:
+                    return mode.get("key")
+        return None if self._modes else self._MODE_FALLBACK.get(kind)
+
     def _log_debug(self, msg: str, *args) -> None:
         """Log debug message if debug logging is enabled."""
         if self._debug_logging:
