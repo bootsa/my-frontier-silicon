@@ -9,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import FrontierSiliconCoordinator
+from .coordinator import FrontierSiliconCoordinator, raise_on_failure
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,13 +63,13 @@ class FrontierSiliconBluetoothSwitch(CoordinatorEntity, SwitchEntity):
         if key is None:
             _LOGGER.warning("This radio has no Bluetooth mode")
             return
-        await self.coordinator.api.set_mode(key)
+        raise_on_failure(await self.coordinator.api.set_mode(key), "set_mode")
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn off Bluetooth mode (switch to Internet Radio)."""
         _LOGGER.info("Switching from Bluetooth to Internet Radio")
-        await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0")
+        raise_on_failure(await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0"), "set_mode")
         await self.coordinator.async_request_refresh()
 
 
@@ -108,11 +108,11 @@ class FrontierSiliconSpotifySwitch(CoordinatorEntity, SwitchEntity):
         if key is None:
             _LOGGER.warning("This radio has no Spotify mode")
             return
-        await self.coordinator.api.set_mode(key)
+        raise_on_failure(await self.coordinator.api.set_mode(key), "set_mode")
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn off Spotify mode (switch to Internet Radio)."""
         _LOGGER.info("Switching from Spotify to Internet Radio")
-        await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0")
+        raise_on_failure(await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0"), "set_mode")
         await self.coordinator.async_request_refresh()

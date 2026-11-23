@@ -9,6 +9,8 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry as dr
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import FrontierSiliconAPI
@@ -22,6 +24,12 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def raise_on_failure(ok: bool, action: str) -> None:
+    """Raise HomeAssistantError when the device did not accept a command."""
+    if not ok:
+        raise HomeAssistantError(f"Frontier Silicon device did not accept command: {action}")
 
 DEFAULT_OFF_DATA: dict[str, Any] = {
     "power": False,
