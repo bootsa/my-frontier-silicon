@@ -191,10 +191,18 @@ class FrontierSiliconAPI:
         Falls back to individual GETs on firmwares without GET_MULTIPLE.
         """
         if self._get_multiple_supported is not False:
-            result = await self._get_multiple(paths, context=context)
-            if result is not None:
+            # Some radios (e.g. Roberts Stream 94i) silently ignore requests with
+            # more than 9 nodes, so ask for at most 8 at a time.
+            merged: dict[str, Optional[str]] = {}
+            for i in range(0, len(paths), 8):
+                part = await self._get_multiple(paths[i:i + 8], context=context)
+                if part is None:
+                    merged = {}
+                    break
+                merged.update(part)
+            if merged or not paths:
                 self._get_multiple_supported = True
-                return result
+                return merged
             # A cleared session means it expired; that says nothing about support
             if self._get_multiple_supported is None and self.session_id is not None:
                 _LOGGER.info("Device does not support GET_MULTIPLE; using individual requests")
