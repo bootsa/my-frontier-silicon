@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import FrontierSiliconAPI
@@ -72,6 +73,8 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
         self._auto_load_attempted = False
         # Modes whose presets were auto-read during this power-on cycle
         self._preset_modes_attempted: set[str] = set()
+        # (firmware, mac) last written to the device registry
+        self._registered_device_info: tuple[str | None, str | None] = (None, None)
         
         # Get options with defaults
         self._debug_logging = entry.options.get("debug_logging", False)
@@ -215,6 +218,7 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             if self._device_info:
                 data.update(self._device_info)
 
+            self._async_update_device_registry(data)
             return data
 
         except Exception as err:
@@ -223,6 +227,30 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             data = DEFAULT_OFF_DATA.copy()
             data["available"] = False
             return data
+
+    @callback
+    def _async_update_device_registry(self, data: dict[str, Any]) -> None:
+        """Record firmware version and MAC address on the device.
+
+        Both are only known once the radio has been ON, so they cannot be
+        part of the static DeviceInfo set when the entities are created.
+        """
+        info = (data.get("firmware_version"), data.get("mac_address"))
+        if not any(info) or info == self._registered_device_info:
+            return
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, self.entry.entry_id)})
+        if device is None:
+            # Entities not added yet; retried on the next poll
+            return
+        sw_version, mac = info
+        changes: dict[str, Any] = {}
+        if sw_version:
+            changes["sw_version"] = sw_version
+        if mac:
+            changes["merge_connections"] = {(dr.CONNECTION_NETWORK_MAC, dr.format_mac(mac))}
+        registry.async_update_device(device.id, **changes)
+        self._registered_device_info = info
 
     async def async_shutdown(self) -> None:
         """Shutdown coordinator."""
