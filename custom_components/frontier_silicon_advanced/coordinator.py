@@ -236,6 +236,56 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
 
         await super().async_config_entry_first_refresh()
 
+
+    # --- Mode lookup by the radio's own mode ids (keys differ between models) ---
+    _MODE_ALIASES = {
+        "radio": ("IR", "INTERNET RADIO", "RADIO"),
+        "spotify": ("SPOTIFY", "SPOTIFY CONNECT"),
+        "bluetooth": ("BT", "BLUETOOTH"),
+        "dab": ("DAB", "DAB+"),
+        "fm": ("FM",),
+    }
+    _MODE_FALLBACK = {"radio": "0", "spotify": "1", "bluetooth": "5", "dab": "3", "fm": "4"}
+    _PRESET_KINDS = ("radio", "dab", "fm")
+
+    def mode_key(self, kind: str) -> str | None:
+        """Return the radio's key for a kind of mode (radio/spotify/bluetooth/dab/fm).
+
+        Resolved from netRemote.sys.caps.validModes by id/label. Falls back to the
+        common numbering only while the mode list hasn't been loaded yet.
+        """
+        wanted = self._MODE_ALIASES.get(kind, ())
+        for mode in self._modes or []:
+            for field in ("id", "label"):
+                if (mode.get(field) or "").strip().upper() in wanted:
+                    return mode.get("key")
+        if self._modes:
+            return None
+        return self._MODE_FALLBACK.get(kind)
+
+    def mode_label(self, key: str) -> str:
+        """Human label for a mode key, as the radio names it."""
+        for mode in self._modes or []:
+            if mode.get("key") == key:
+                return mode.get("label") or mode.get("id") or f"Mode {key}"
+        return f"Mode {key}"
+
+    def preset_mode_keys(self) -> list[str]:
+        """Mode keys that have presets on this radio, without duplicates."""
+        keys: list[str] = []
+        for kind in self._PRESET_KINDS:
+            key = self.mode_key(kind)
+            if key is not None and key not in keys:
+                keys.append(key)
+        return keys
+
+    async def _ensure_modes(self) -> None:
+        if not self._modes and self._radio_is_known_on():
+            try:
+                self._modes = await self.api.get_modes()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Could not load modes: %s", err)
+
     async def _load_presets_for_mode(self, mode_id: str) -> list[dict[str, str]]:
         """Load presets for a specific mode, preserving current mode.
         
@@ -296,9 +346,15 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
 
         self._log_info("All presets not cached. Radio confirmed ON, loading presets on demand")
         self._all_presets = {}
-        for mode in ["0", "3", "4"]:
+        await self._ensure_modes()
+        seen: list[list[dict[str, str]]] = []
+        for mode in self.preset_mode_keys():
             presets = await self._load_presets_for_mode(mode)
-            if presets:
+            # Some radios answer the same list for modes they don't really have
+            # (shown as two identical sets of presets): keep only the first.
+            names = [p.get("name") for p in presets]
+            if presets and names not in seen:
+                seen.append(names)
                 self._all_presets[mode] = presets
         return self._all_presets
 

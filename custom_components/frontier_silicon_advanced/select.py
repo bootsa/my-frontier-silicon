@@ -76,7 +76,7 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         
         if hasattr(self.coordinator, "_all_presets"):
             for mode_id, presets in self.coordinator._all_presets.items():
-                mode_name = MODE_NAMES.get(mode_id, f"Mode {mode_id}")
+                mode_name = self.coordinator.mode_label(mode_id)
                 
                 for preset in presets:
                     preset_key = preset.get("key", "")
@@ -101,7 +101,6 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         current_station = self.coordinator.data.get("station_name")
         
         if current_mode and current_station:
-            mode_name = MODE_NAMES.get(current_mode, f"Mode {current_mode}")
             # Try to find matching preset
             for display_name, (mode_id, _) in self._preset_map.items():
                 if mode_id == current_mode and current_station in display_name:

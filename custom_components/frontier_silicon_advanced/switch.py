@@ -48,7 +48,8 @@ class FrontierSiliconBluetoothSwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool:
         """Return true if Bluetooth mode is active."""
         current_mode = self.coordinator.data.get("mode")
-        return current_mode == "5"  # Mode 5 is Bluetooth
+        key = self.coordinator.mode_key("bluetooth")
+        return key is not None and current_mode == key
 
     @property
     def icon(self) -> str:
@@ -58,13 +59,17 @@ class FrontierSiliconBluetoothSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn on Bluetooth mode."""
         _LOGGER.info("Switching to Bluetooth mode")
-        await self.coordinator.api.set_mode("5")
+        key = self.coordinator.mode_key("bluetooth")
+        if key is None:
+            _LOGGER.warning("This radio has no Bluetooth mode")
+            return
+        await self.coordinator.api.set_mode(key)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn off Bluetooth mode (switch to Internet Radio)."""
         _LOGGER.info("Switching from Bluetooth to Internet Radio")
-        await self.coordinator.api.set_mode("0")
+        await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0")
         await self.coordinator.async_request_refresh()
 
 
@@ -88,7 +93,8 @@ class FrontierSiliconSpotifySwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool:
         """Return true if Spotify mode is active."""
         current_mode = self.coordinator.data.get("mode")
-        return current_mode == "1"  # Mode 1 is Spotify
+        key = self.coordinator.mode_key("spotify")
+        return key is not None and current_mode == key
 
     @property
     def icon(self) -> str:
@@ -98,11 +104,15 @@ class FrontierSiliconSpotifySwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn on Spotify mode."""
         _LOGGER.info("Switching to Spotify mode")
-        await self.coordinator.api.set_mode("1")
+        key = self.coordinator.mode_key("spotify")
+        if key is None:
+            _LOGGER.warning("This radio has no Spotify mode")
+            return
+        await self.coordinator.api.set_mode(key)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn off Spotify mode (switch to Internet Radio)."""
         _LOGGER.info("Switching from Spotify to Internet Radio")
-        await self.coordinator.api.set_mode("0")
+        await self.coordinator.api.set_mode(self.coordinator.mode_key("radio") or "0")
         await self.coordinator.async_request_refresh()

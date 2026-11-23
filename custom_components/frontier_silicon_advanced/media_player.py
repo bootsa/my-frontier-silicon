@@ -203,7 +203,7 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 
                 # Load presets for all modes
                 import asyncio
-                for mode in ["0", "3", "4"]:  # Internet Radio, DAB+, FM
+                for mode in self.coordinator.preset_mode_keys():
                     mode_presets = await self.coordinator._load_presets_for_mode(mode)
                     if mode_presets:
                         self.coordinator._all_presets[mode] = mode_presets
