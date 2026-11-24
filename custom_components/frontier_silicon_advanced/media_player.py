@@ -134,7 +134,7 @@ class FrontierSiliconMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     @property
     def media_image_url(self) -> str | None:
         """Image url of current playing media."""
-        return self.coordinator.data.get("graphic_uri")
+        return self.coordinator.image_for(self.coordinator.data)
 
     @property
     def source(self) -> str | None:

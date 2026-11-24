@@ -1,5 +1,6 @@
 """Data coordinator for My Frontier Silicon integration - FIXED VERSION."""
 import asyncio
+import time
 import logging
 from datetime import timedelta
 from typing import Any
@@ -95,6 +96,11 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
         self._all_presets: dict[str, list[dict[str, str]]] = {}
         self._presets: list[dict[str, str]] = []
         self._preset_lock = asyncio.Lock()
+        # Station picture by station name, so it can be shown the moment a
+        # preset is chosen instead of when the radio finally reports it
+        self._images: dict[str, str] = {}
+        # (station name, deadline) of a preset that was just selected
+        self.pending_station: tuple[str, float] | None = None
         self._preset_store = preset_store(hass, entry.entry_id)
         # Modes are auto-loaded once per power-on cycle
         self._auto_load_attempted = False
@@ -221,6 +227,7 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
                 data.update(self._device_info)
 
             self._async_update_device_registry(data)
+            self._remember_image(data)
             return data
 
         except Exception as err:
@@ -229,6 +236,36 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             data = DEFAULT_OFF_DATA.copy()
             data["available"] = False
             return data
+
+    @staticmethod
+    def _real_image(uri: str | None) -> bool:
+        return bool(uri) and "default.png" not in uri
+
+    def _remember_image(self, data: dict[str, Any]) -> None:
+        name = (data.get("station_name") or "").strip()
+        uri = data.get("graphic_uri")
+        if name and self._real_image(uri) and self._images.get(name) != uri:
+            self._images[name] = uri
+            self._preset_store.async_delay_save(lambda: self._store_payload(), 10)
+
+    def _store_payload(self) -> dict[str, Any]:
+        return {"presets": self._all_presets, "images": self._images}
+
+    def image_for(self, data: dict[str, Any]) -> str | None:
+        """Picture to show: the pending preset's remembered one, else the radio's."""
+        station = (data.get("station_name") or "").strip()
+        uri = data.get("graphic_uri")
+        name = station
+        if self.pending_station is not None:
+            pending, deadline = self.pending_station
+            if station == pending or time.monotonic() > deadline:
+                self.pending_station = None
+            else:
+                name = pending
+                uri = None
+        if not self._real_image(uri):
+            return self._images.get(name) or uri
+        return uri
 
     @callback
     def _async_update_device_registry(self, data: dict[str, Any]) -> None:
@@ -381,6 +418,8 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Error reading stored presets: %s", err)
             return {}
         if isinstance(stored, dict) and isinstance(stored.get("presets"), dict):
+            if isinstance(stored.get("images"), dict):
+                self._images = {str(k): str(v) for k, v in stored["images"].items()}
             presets = stored["presets"]
             # Drop modes whose cached list repeats another mode's (stale reads)
             clean: dict[str, list[dict[str, str]]] = {}
@@ -393,7 +432,7 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
 
     async def _async_save_presets(self) -> None:
         """Persist presets so they survive restarts."""
-        await self._preset_store.async_save({"presets": self._all_presets})
+        await self._preset_store.async_save(self._store_payload())
 
     def _preset_mode_keys(self) -> list[str]:
         """Return keys of the modes that support presets on this device.

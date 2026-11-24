@@ -135,8 +135,10 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             _LOGGER.error("Preset %s not found in map", option)
             return
         
-        mode_id, preset_key, _ = self._preset_map[option]
+        mode_id, preset_key, preset_name = self._preset_map[option]
         self._pending_preset = (option, time.monotonic() + 25)
+        self.coordinator.pending_station = (preset_name, time.monotonic() + 25)
+        self.coordinator.async_update_listeners()
         self.async_write_ha_state()
         try:
         
@@ -164,7 +166,7 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             if switched:
                 await asyncio.sleep(2.0)
             ok = False
-            for _ in range(8):
+            for _ in range(12):
                 ok = await self.coordinator.api.select_preset(preset_key)
                 if ok:
                     break
@@ -173,6 +175,7 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             raise_on_failure(ok, "select_preset")
         except Exception:
             self._pending_preset = None
+            self.coordinator.pending_station = None
             self.async_write_ha_state()
             raise
 
