@@ -138,27 +138,32 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         mode_id, preset_key, _ = self._preset_map[option]
         self._pending_preset = (option, time.monotonic() + 25)
         self.async_write_ha_state()
+        try:
         
-        _LOGGER.info("Selecting preset: %s (mode: %s, key: %s)", option, mode_id, preset_key)
+            _LOGGER.info("Selecting preset: %s (mode: %s, key: %s)", option, mode_id, preset_key)
         
-        # Switch to correct mode
-        if self.coordinator.data.get("mode") != mode_id:
-            raise_on_failure(await self.coordinator.api.set_mode(mode_id), "set_mode")
-            await self.coordinator.api.wait_for_mode(mode_id)
+            # Switch to correct mode
+            if self.coordinator.data.get("mode") != mode_id:
+                raise_on_failure(await self.coordinator.api.set_mode(mode_id), "set_mode")
+                await self.coordinator.api.wait_for_mode(mode_id)
         
-        # Navigate to presets (retries while the radio is still loading the mode)
-        status = "FS_NODE_BLOCKED"
-        for _ in range(6):
-            status = await self.coordinator.api.set_value("netRemote.nav.state", "1")
-            if status == "FS_OK":
-                break
-            await asyncio.sleep(0.8)
-        raise_on_failure(status == "FS_OK", f"set netRemote.nav.state (status={status})")
-        await asyncio.sleep(0.3)
+            # Navigate to presets (retries while the radio is still loading the mode)
+            status = "FS_NODE_BLOCKED"
+            for _ in range(6):
+                status = await self.coordinator.api.set_value("netRemote.nav.state", "1")
+                if status == "FS_OK":
+                    break
+                await asyncio.sleep(0.8)
+            raise_on_failure(status == "FS_OK", f"set netRemote.nav.state (status={status})")
+            await asyncio.sleep(0.3)
         
-        # Select preset
-        raise_on_failure(await self.coordinator.api.select_preset(preset_key), "select_preset")
-        
+            # Select preset
+            raise_on_failure(await self.coordinator.api.select_preset(preset_key), "select_preset")
+        except Exception:
+            self._pending_preset = None
+            self.async_write_ha_state()
+            raise
+
         # Refresh
         await self.coordinator.async_request_refresh()
 
