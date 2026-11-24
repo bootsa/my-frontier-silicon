@@ -357,7 +357,18 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
                 # Mode changed meanwhile; a later poll picks up the new one
                 return
             self._log_info("Reading presets of current mode %s", mode_id)
+            # Just after the user switched, the radio may still serve the old list
+            await asyncio.sleep(2.0)
+            if self.data.get("mode") != mode_id:
+                return
             presets = await self._load_presets_for_mode(mode_id, switch_mode=False)
+            if presets and self._duplicates_other(mode_id, presets, self._all_presets):
+                await asyncio.sleep(3.0)
+                presets = await self._load_presets_for_mode(mode_id, switch_mode=False)
+                if presets and self._duplicates_other(mode_id, presets, self._all_presets):
+                    _LOGGER.debug("Mode %s still shows another mode's presets; not caching", mode_id)
+                    self._preset_modes_attempted.discard(mode_id)
+                    return
             if presets:
                 self._all_presets[mode_id] = presets
                 await self._async_save_presets()
@@ -370,8 +381,14 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Error reading stored presets: %s", err)
             return {}
         if isinstance(stored, dict) and isinstance(stored.get("presets"), dict):
-            self._log_info("Loaded stored presets for modes %s", list(stored["presets"]))
-            return stored["presets"]
+            presets = stored["presets"]
+            # Drop modes whose cached list repeats another mode's (stale reads)
+            clean: dict[str, list[dict[str, str]]] = {}
+            for mode_id, plist in presets.items():
+                if not self._duplicates_other(mode_id, plist, clean):
+                    clean[mode_id] = plist
+            self._log_info("Loaded stored presets for modes %s", list(clean))
+            return clean
         return {}
 
     async def _async_save_presets(self) -> None:
@@ -413,6 +430,9 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             if switch_mode:
                 await self.api.set_mode(mode_id)
                 await self.api.wait_for_mode(mode_id)
+                # The preset list lags behind the mode: right after the switch
+                # the radio can still serve the previous mode's list.
+                await asyncio.sleep(2.0)
             # get_presets() handles nav.state internally
             presets = await self.api.get_presets()
             self._log_info("Loaded %d presets for mode %s", len(presets), mode_id)
@@ -420,6 +440,25 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.warning("Error loading presets for mode %s: %s", mode_id, err)
             return []
+
+    @staticmethod
+    def _preset_names(presets: list[dict[str, str]]) -> list[str]:
+        return [(p.get("name") or "").strip() for p in presets]
+
+    def _duplicates_other(
+        self,
+        mode_id: str,
+        presets: list[dict[str, str]],
+        loaded: dict[str, list[dict[str, str]]],
+    ) -> bool:
+        """True if these presets are identical to those of another mode."""
+        names = self._preset_names(presets)
+        if not any(names):
+            return False
+        return any(
+            other != mode_id and self._preset_names(p) == names
+            for other, p in loaded.items()
+        )
 
     async def _async_load_all_presets(self) -> dict[str, list[dict[str, str]]]:
         """Load presets for all preset-capable modes, then restore the mode.
@@ -458,6 +497,14 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
                     switch_mode = mode_id != current_mode
                     switched |= switch_mode
                     presets = await self._load_presets_for_mode(mode_id, switch_mode=switch_mode)
+                    if presets and self._duplicates_other(mode_id, presets, all_presets):
+                        self._log_info("Mode %s returned another mode's presets; retrying", mode_id)
+                        await asyncio.sleep(3.0)
+                        presets = await self._load_presets_for_mode(mode_id, switch_mode=False)
+                        if presets and self._duplicates_other(mode_id, presets, all_presets):
+                            _LOGGER.warning("Mode %s keeps returning another mode's presets; ignoring", mode_id)
+                            presets = []
+                            self._all_presets.pop(mode_id, None)
                     if presets:
                         all_presets[mode_id] = presets
             finally:
