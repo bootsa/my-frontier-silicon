@@ -143,7 +143,8 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             _LOGGER.info("Selecting preset: %s (mode: %s, key: %s)", option, mode_id, preset_key)
         
             # Switch to correct mode
-            if self.coordinator.data.get("mode") != mode_id:
+            switched = self.coordinator.data.get("mode") != mode_id
+            if switched:
                 raise_on_failure(await self.coordinator.api.set_mode(mode_id), "set_mode")
                 await self.coordinator.api.wait_for_mode(mode_id)
         
@@ -158,7 +159,18 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             await asyncio.sleep(0.3)
         
             # Select preset
-            raise_on_failure(await self.coordinator.api.select_preset(preset_key), "select_preset")
+            # Right after a mode switch the radio refuses for a few seconds while
+            # it loads: wait a moment, then retry.
+            if switched:
+                await asyncio.sleep(2.0)
+            ok = False
+            for _ in range(8):
+                ok = await self.coordinator.api.select_preset(preset_key)
+                if ok:
+                    break
+                await asyncio.sleep(1.0)
+                await self.coordinator.api.set_value("netRemote.nav.state", "1")
+            raise_on_failure(ok, "select_preset")
         except Exception:
             self._pending_preset = None
             self.async_write_ha_state()
