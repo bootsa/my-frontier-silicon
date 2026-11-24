@@ -58,6 +58,8 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         )
         # {display_name: (mode_id, preset_key, preset_name)}
         self._preset_map: dict[str, tuple[str, str, str]] = {}
+        # Optimistic selection: (display name, deadline) until the radio confirms
+        self._pending_preset: tuple[str, float] | None = None
         self._update_preset_map()
 
     def _mode_name(self, mode_id: str) -> str:
@@ -104,12 +106,22 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         # Devices may pad station names with whitespace
         current_station = (self.coordinator.data.get("station_name") or "").strip()
         
+        actual = None
         if current_mode and current_station:
             for display_name, (mode_id, _, preset_name) in self._preset_map.items():
                 if mode_id == current_mode and preset_name == current_station:
-                    return display_name
-    
-        return None
+                    actual = display_name
+                    break
+
+        # While the radio loads the new preset it keeps reporting the old one
+        # (or none) for a few seconds; show the requested one until confirmed.
+        if self._pending_preset is not None:
+            pending, deadline = self._pending_preset
+            if actual == pending or time.monotonic() > deadline:
+                self._pending_preset = None
+            elif pending in self._preset_map:
+                return pending
+        return actual
 
     @property
     def icon(self) -> str:
@@ -124,6 +136,8 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
             return
         
         mode_id, preset_key, _ = self._preset_map[option]
+        self._pending_preset = (option, time.monotonic() + 25)
+        self.async_write_ha_state()
         
         _LOGGER.info("Selecting preset: %s (mode: %s, key: %s)", option, mode_id, preset_key)
         
