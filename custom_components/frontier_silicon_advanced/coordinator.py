@@ -412,7 +412,7 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
         try:
             if switch_mode:
                 await self.api.set_mode(mode_id)
-                await asyncio.sleep(0.5)
+                await self.api.wait_for_mode(mode_id)
             # get_presets() handles nav.state internally
             presets = await self.api.get_presets()
             self._log_info("Loaded %d presets for mode %s", len(presets), mode_id)

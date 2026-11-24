@@ -294,13 +294,34 @@ class FrontierSiliconAPI:
         return await self.list_get_next("netRemote.sys.caps.validModes", context="get_modes")
 
     async def get_presets(self) -> list[dict[str, str]]:
-        """Get saved presets/favorites for the current mode."""
+        """Get saved presets/favorites for the current mode.
+
+        Right after a mode switch the radio is still loading and answers with
+        FS_NODE_BLOCKED / an empty list, so retry for a few seconds.
+        """
         _LOGGER.debug("FSAPI preset read changes navigation state first; this may wake/change some radios")
-        await self.set_value("netRemote.nav.state", "1", context="get_presets:navigate")
-        await asyncio.sleep(0.3)
-        presets = await self.list_get_next("netRemote.nav.presets", max_items=40, context="get_presets:list")
+        presets: list[dict[str, str]] = []
+        for attempt in range(8):
+            status = await self.set_value("netRemote.nav.state", "1", context="get_presets:navigate")
+            await asyncio.sleep(0.4 if status == "FS_OK" else 0.8)
+            if status == "FS_OK":
+                presets = await self.list_get_next("netRemote.nav.presets", max_items=40, context="get_presets:list")
+                if presets:
+                    break
+            _LOGGER.debug("Presets not ready (status=%s, attempt %d)", status, attempt + 1)
         _LOGGER.info("Found %d presets", len(presets))
         return presets
+
+    async def wait_for_mode(self, mode_id: str, timeout: float = 12.0) -> bool:
+        """Wait until the radio reports the given mode as current."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            value, _ = await self.get_value("netRemote.sys.mode", context="wait_for_mode")
+            if value == mode_id:
+                return True
+            await asyncio.sleep(0.5)
+        return False
 
     async def power_on(self) -> bool:
         """Turn device on."""

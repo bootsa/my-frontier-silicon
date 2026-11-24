@@ -1,5 +1,6 @@
 """Select platform for My Frontier Silicon."""
 import asyncio
+import time
 import logging
 import re
 
@@ -127,11 +128,17 @@ class FrontierSiliconMultiModePresetSelect(CoordinatorEntity, SelectEntity):
         _LOGGER.info("Selecting preset: %s (mode: %s, key: %s)", option, mode_id, preset_key)
         
         # Switch to correct mode
-        raise_on_failure(await self.coordinator.api.set_mode(mode_id), "set_mode")
-        await asyncio.sleep(0.5)
+        if self.coordinator.data.get("mode") != mode_id:
+            raise_on_failure(await self.coordinator.api.set_mode(mode_id), "set_mode")
+            await self.coordinator.api.wait_for_mode(mode_id)
         
-        # Navigate to presets
-        status = await self.coordinator.api.set_value("netRemote.nav.state", "1")
+        # Navigate to presets (retries while the radio is still loading the mode)
+        status = "FS_NODE_BLOCKED"
+        for _ in range(6):
+            status = await self.coordinator.api.set_value("netRemote.nav.state", "1")
+            if status == "FS_OK":
+                break
+            await asyncio.sleep(0.8)
         raise_on_failure(status == "FS_OK", f"set netRemote.nav.state (status={status})")
         await asyncio.sleep(0.3)
         
@@ -158,6 +165,7 @@ class FrontierSiliconModeSelect(CoordinatorEntity, SelectEntity):
             identifiers={(DOMAIN, entry.entry_id)},
         )
         self._mode_map: dict[str, str] = {}
+        self._pending_mode: tuple[str, float] | None = None
         self._update_mode_map()
 
     @callback
@@ -169,7 +177,7 @@ class FrontierSiliconModeSelect(CoordinatorEntity, SelectEntity):
                 key = mode.get("key", "")
                 name = mode.get("label") or mode.get("name", "")
                 
-                if name:
+                if name and mode.get("selectable") != "0":
                     self._mode_map[name] = key
 
     @property
@@ -182,6 +190,15 @@ class FrontierSiliconModeSelect(CoordinatorEntity, SelectEntity):
     def current_option(self) -> str | None:
         """Return the current mode."""
         mode_id = self.coordinator.data.get("mode")
+        # Optimistic UI: after a switch the radio keeps reporting the old mode
+        # for a few seconds while it loads, so show the requested one until the
+        # radio confirms it or the grace period ends.
+        if self._pending_mode is not None:
+            pending, deadline = self._pending_mode
+            if mode_id == pending or time.monotonic() > deadline:
+                self._pending_mode = None
+            else:
+                mode_id = pending
         if mode_id is None:
             return None
         
@@ -223,6 +240,8 @@ class FrontierSiliconModeSelect(CoordinatorEntity, SelectEntity):
         if mode_key is not None:
             _LOGGER.info("Switching to mode: %s (key: %s)", option, mode_key)
             raise_on_failure(await self.coordinator.api.set_mode(mode_key), "set_mode")
+            self._pending_mode = (mode_key, time.monotonic() + 20)
+            self.async_write_ha_state()
             await self.coordinator.async_request_refresh()
         else:
             _LOGGER.error("Mode %s not found", option)
