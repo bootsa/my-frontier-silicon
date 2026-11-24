@@ -67,7 +67,10 @@
     },
     "button": {
       "refresh_presets": {
-        "name": "Refresh Presets"
+        "name": "Refresh presets (all modes, interrupts audio)"
+      },
+      "refresh_current_presets": {
+        "name": "Refresh presets (current mode)"
       },
       "force_power_probe": {
         "name": "Check Power State"

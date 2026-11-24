@@ -24,6 +24,7 @@ async def async_setup_entry(
 
     async_add_entities([
         FrontierSiliconRefreshPresetsButton(coordinator, entry),
+        FrontierSiliconRefreshCurrentPresetsButton(coordinator, entry),
         FrontierSiliconForcePowerProbeButton(coordinator, entry),
     ])
 
@@ -54,6 +55,28 @@ class FrontierSiliconRefreshPresetsButton(CoordinatorEntity, ButtonEntity):
         _LOGGER.info("Refreshing presets and modes from device")
         await self.coordinator.refresh_modes()
         await self.coordinator.refresh_all_presets()
+
+
+class FrontierSiliconRefreshCurrentPresetsButton(CoordinatorEntity, ButtonEntity):
+    """Refresh presets of the current mode only; never switches mode or stops audio."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "refresh_current_presets"
+
+    def __init__(self, coordinator: FrontierSiliconCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_refresh_current_presets"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)})
+
+    @property
+    def icon(self) -> str:
+        return "mdi:playlist-refresh"
+
+    async def async_press(self) -> None:
+        if not self.coordinator.data or self.coordinator.data.get("power") is not True:
+            _LOGGER.warning("Refresh current presets ignored: radio is OFF/not confirmed ON")
+            return
+        await self.coordinator.refresh_current_mode_presets()
 
 
 class FrontierSiliconForcePowerProbeButton(CoordinatorEntity, ButtonEntity):

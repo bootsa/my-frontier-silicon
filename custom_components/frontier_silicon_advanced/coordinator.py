@@ -473,6 +473,15 @@ class FrontierSiliconCoordinator(DataUpdateCoordinator):
             await self._async_save_presets()
             return self._all_presets
 
+    async def refresh_current_mode_presets(self) -> None:
+        """Re-read presets of the mode the radio is in, without switching."""
+        mode = self.data.get("mode")
+        if mode is None or mode not in self._preset_mode_keys():
+            _LOGGER.info("Current mode %s has no presets", mode)
+            return
+        await self._async_load_current_mode_presets(mode)
+        self.async_update_listeners()
+
     async def refresh_all_presets(self) -> None:
         """Reload presets for all modes, ignoring the cache."""
         if not self._radio_is_known_on():
